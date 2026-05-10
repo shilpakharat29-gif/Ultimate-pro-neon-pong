@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ultimate Neon Pong</title>
+
+<style>
+*{
+  margin:0;
+  padding:0;
+  box-sizing:border-box;
+}
+
+body{
+  background:radial-gradient(circle at top,#220033,#000);
+  font-family:Arial,Helvetica,sans-serif;
+  color:white;
+  overflow:hidden;
+  text-align:center;
+}
+
+h1{
+  margin-top:10px;
+  color:#ffccff;
+  text-shadow:0 0 20px #c000ff;
+}
+
+#topUI{
+  margin:10px;
+}
+
+button,select{
+  padding:10px 14px;
+  margin:4px;
+  border:none;
+  border-radius:10px;
+  background:#8a00ff;
+  color:white;
+  font-weight:bold;
+  cursor:pointer;
+  transition:0.2s;
+}
+
+button:hover,select:hover{
+  background:#d000ff;
+  transform:scale(1.05);
+}
+
+#gameInfo{
+  margin:10px;
+  font-size:18px;
+  color:#ffd9ff;
+}
+
+canvas{
+  display:block;
+  margin:auto;
+  border:2px solid #b400ff;
+  border-radius:12px;
+  background:rgba(0,0,0,0.45);
+  box-shadow:0 0 40px #a000ff;
+}
+
+#goalPopup{
+  position:absolute;
+  top:42%;
+  left:50%;
+  transform:translate(-50%,-50%);
+  font-size:70px;
+  color:#fff;
+  text-shadow:0 0 30px #ff00ff;
+  display:none;
+  animation:pop 0.5s ease;
+}
+
+@keyframes pop{
+  0%{transform:translate(-50%,-50%) scale(0.5);}
+  100%{transform:translate(-50%,-50%) scale(1);}
+}
+
+#winScreen{
+  position:absolute;
+  top:0;
+  left:0;
+  width:100%;
+  height:100%;
+  background:rgba(0,0,0,0.92);
+  display:none;
+  justify-content:center;
+  align-items:center;
+  flex-direction:column;
+  z-index:10;
+}
+
+#winText{
+  font-size:50px;
+  color:#fff;
+  text-shadow:0 0 30px #ff00ff;
+  margin-bottom:20px;
+}
+
+#powerText{
+  position:absolute;
+  top:15%;
+  left:50%;
+  transform:translateX(-50%);
+  font-size:30px;
+  color:#ffccff;
+  text-shadow:0 0 20px #ff00ff;
+  display:none;
+}
+</style>
+</head>
+
+<body>
+
+<h1>🏓 ULTIMATE NEON PONG</h1>
+
+<div id="topUI">
+  <button onclick="startGame()">START</button>
+  <button onclick="pauseGame()">PAUSE</button>
+  <button onclick="resetGame()">RESTART</button>
+
+  <select id="mode">
+    <option value="ai">AI MODE</option>
+    <option value="pvp">2 PLAYER</option>
+  </select>
+
+  <select id="difficulty">
+    <option value="easy">EASY</option>
+    <option value="medium">MEDIUM</option>
+    <option value="hard">HARD</option>
+    <option value="boss">FINAL BOSS</option>
+  </select>
+
+  <select id="character">
+    <option value="speed">⚡ SPEED</option>
+    <option value="tank">🛡️ TANK</option>
+    <option value="pro">🎯 PRO</option>
+  </select>
+</div>
+
+<div id="gameInfo">
+  Score: <span id="score">0 - 0</span>
+  |
+  Tournament Wins: <span id="wins">0</span>/3
+</div>
+
+<div id="goalPopup">GOAL!</div>
+<div id="powerText"></div>
+
+<canvas id="game" width="900" height="500"></canvas>
+
+<div id="winScreen">
+  <div id="winText"></div>
+  <button onclick="resetGame()">PLAY AGAIN</button>
+</div>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+let keys = {};
+document.addEventListener("keydown",e=>keys[e.key]=true);
+document.addEventListener("keyup",e=>keys[e.key]=false);
+
+canvas.addEventListener("touchmove",e=>{
+  let t=e.touches[0];
+  let rect=canvas.getBoundingClientRect();
+  p1.y=t.clientY-rect.top-p1.h/2;
+});
+
+let ball,p1,p2;
+let running=false;
+let paused=false;
+let canMoveBall=false;
+
+let score1=0;
+let score2=0;
+let tournamentWins=0;
+
+let trail=[];
+
+function audio(freq){
+  let a=new(window.AudioContext||window.webkitAudioContext)();
+  let o=a.createOscillator();
+  let g=a.createGain();
+
+  o.frequency.value=freq;
+  g.gain.value=0.05;
+
+  o.connect(g);
+  g.connect(a.destination);
+
+  o.start();
+  o.stop(a.currentTime+0.08);
+}
+
+function init(){
+
+  let char=document.getElementById("character").value;
+
+  let size=90;
+  let speed=7;
+
+  if(char==="speed"){
+    size=65;
+    speed=10;
+  }
+
+  if(char==="tank"){
+    size=130;
+    speed=5;
+  }
+
+  if(char==="pro"){
+    size=90;
+    speed=7;
+  }
+
+  p1={
+    x:20,
+    y:200,
+    w:12,
+    h:size,
+    speed:speed,
+    prevY:200
+  };
+
+  p2={
+    x:868,
+    y:200,
+    w:12,
+    h:90,
+    speed:6,
+    prevY:200
+  };
+
+  resetBall(true);
+}
+
+function resetBall(first=false){
+
+  ball={
+    x:450,
+    y:250,
+    r:9,
+    vx:0,
+    vy:0
+  };
+
+  canMoveBall=false;
+  trail=[];
+
+  setTimeout(()=>{
+
+    let angle=(Math.random()*Math.PI/2)-(Math.PI/4);
+    let dir=Math.random()<0.5?-1:1;
+
+    let speed=8;
+
+    ball.vx=Math.cos(angle)*speed*dir;
+    ball.vy=Math.sin(angle)*speed;
+
+    canMoveBall=true;
+
+  },first?700:2000);
+}
+
+function popup(text){
+
+  const el=document.getElementById("powerText");
+  el.innerText=text;
+  el.style.display="block";
+
+  setTimeout(()=>{
+    el.style.display="none";
+  },1200);
+}
+
+function activatePower(){
+
+  let rand=Math.random();
+
+  if(rand<0.003){
+
+    ball.vx*=1.35;
+    ball.vy*=1.35;
+
+    popup("🔥 FIRE BALL");
+  }
+
+  if(rand>0.995){
+
+    p1.h=140;
+
+    popup("📏 BIG PADDLE");
+
+    setTimeout(()=>{
+      p1.h=90;
+    },4000);
+  }
+}
+
+function aiMove(){
+
+  let diff=document.getElementById("difficulty").value;
+
+  let speed=4;
+
+  if(diff==="medium") speed=5;
+  if(diff==="hard") speed=7;
+  if(diff==="boss") speed=10;
+
+  let predict=ball.y + ball.vy*8;
+
+  if(predict>p2.y+p2.h/2){
+    p2.y+=speed;
+  }
+
+  if(predict<p2.y+p2.h/2){
+    p2.y-=speed;
+  }
+}
+
+function paddleHit(paddle,left){
+
+  let hitPos=(ball.y-paddle.y)/paddle.h;
+  hitPos=Math.max(0,Math.min(1,hitPos));
+
+  let angle=(hitPos-0.5)*Math.PI/2;
+
+  let speed=Math.sqrt(ball.vx*ball.vx+ball.vy*ball.vy);
+
+  speed*=1.05;
+
+  let dir=left?1:-1;
+
+  let movement=paddle.y-paddle.prevY;
+
+  ball.vy+=movement*0.25;
+
+  ball.vx=Math.cos(angle)*speed*dir;
+  ball.vy=Math.sin(angle)*speed;
+
+  audio(500);
+}
+
+function goal(){
+
+  audio(900);
+
+  const popup=document.getElementById("goalPopup");
+  popup.style.display="block";
+
+  setTimeout(()=>{
+    popup.style.display="none";
+  },700);
+
+  resetBall();
+}
+
+function update(){
+
+  if(!running||paused||!canMoveBall) return;
+
+  p1.prevY=p1.y;
+  p2.prevY=p2.y;
+
+  if(keys["w"]) p1.y-=p1.speed;
+  if(keys["s"]) p1.y+=p1.speed;
+
+  if(document.getElementById("mode").value==="pvp"){
+
+    if(keys["ArrowUp"]) p2.y-=p2.speed;
+    if(keys["ArrowDown"]) p2.y+=p2.speed;
+
+  }else{
+    aiMove();
+  }
+
+  ball.x+=ball.vx;
+  ball.y+=ball.vy;
+
+  if(ball.y<0 || ball.y>500){
+
+    ball.vy*=-1;
+
+    ball.vx+=(Math.random()-0.5)*0.4;
+
+    audio(250);
+  }
+
+  if(
+    ball.x<p1.x+p1.w &&
+    ball.y>p1.y &&
+    ball.y<p1.y+p1.h
+  ){
+    paddleHit(p1,true);
+  }
+
+  if(
+    ball.x>p2.x &&
+    ball.y>p2.y &&
+    ball.y<p2.y+p2.h
+  ){
+    paddleHit(p2,false);
+  }
+
+  if(ball.x<0){
+
+    score2++;
+    goal();
+  }
+
+  if(ball.x>900){
+
+    score1++;
+    goal();
+  }
+
+  if(score1>=7 || score2>=7){
+
+    running=false;
+
+    let text="";
+
+    if(score1>score2){
+
+      tournamentWins++;
+
+      if(tournamentWins>=3){
+        text="🏆 TOURNAMENT CHAMPION!";
+      }else{
+        text="🎉 MATCH WON!";
+      }
+
+    }else{
+      text="💀 YOU LOST!";
+    }
+
+    document.getElementById("winText").innerText=text;
+    document.getElementById("winScreen").style.display="flex";
+  }
+
+  activatePower();
+
+  trail.push({
+    x:ball.x,
+    y:ball.y
+  });
+
+  if(trail.length>30){
+    trail.shift();
+  }
+
+  document.getElementById("score").innerText=
+    score1+" - "+score2;
+
+  document.getElementById("wins").innerText=
+    tournamentWins;
+}
+
+function draw(){
+
+  ctx.fillStyle="rgba(0,0,0,0.22)";
+  ctx.fillRect(0,0,900,500);
+
+  for(let i=0;i<trail.length;i++){
+
+    let t=trail[i];
+
+    ctx.beginPath();
+
+    ctx.fillStyle=`rgba(180,0,255,${i/trail.length})`;
+
+    ctx.arc(t.x,t.y,5,0,Math.PI*2);
+
+    ctx.fill();
+  }
+
+  // center line
+  for(let i=0;i<500;i+=25){
+
+    ctx.fillStyle="#7d00ff";
+
+    ctx.fillRect(445,i,10,14);
+  }
+
+  // paddles
+  ctx.shadowBlur=25;
+
+  ctx.shadowColor="#b400ff";
+  ctx.fillStyle="#b400ff";
+  ctx.fillRect(p1.x,p1.y,p1.w,p1.h);
+
+  ctx.shadowColor="#ff00ff";
+  ctx.fillStyle="#ff00ff";
+  ctx.fillRect(p2.x,p2.y,p2.w,p2.h);
+
+  // ball
+  ctx.beginPath();
+
+  ctx.shadowBlur=35;
+  ctx.shadowColor="#ffffff";
+
+  ctx.fillStyle="#ffffff";
+
+  ctx.arc(ball.x,ball.y,ball.r,0,Math.PI*2);
+
+  ctx.fill();
+}
+
+function loop(){
+
+  update();
+  draw();
+
+  requestAnimationFrame(loop);
+}
+
+function startGame(){
+
+  running=true;
+  paused=false;
+}
+
+function pauseGame(){
+
+  paused=!paused;
+}
+
+function resetGame(){
+
+  score1=0;
+  score2=0;
+
+  document.getElementById("winScreen").style.display="none";
+
+  running=false;
+
+  init();
+}
+
+init();
+loop();
+</script>
+
+</body>
+</html>
